@@ -23,7 +23,27 @@ from guided_diffusion.script_util import (
 
 
 def main():
-    args = create_argparser().parse_args()
+    dir = date.today()
+    args = create_argparser().parse_args("""--num_samples 3
+     --no_instance True
+     --num_classes 151 
+     --data_dir ./data/ade20k
+     --dataset_mode ade20k
+     --attention_resolutions 32,16,8 
+     --diffusion_steps 1000 
+     --image_size 256 
+     --learn_sigma True 
+     --noise_schedule linear 
+     --num_channels 256 
+     --num_head_channels 64 
+     --num_res_blocks 2 
+     --resblock_updown True 
+     --use_fp16 True 
+     --use_scale_shift_norm True 
+     --class_cond True 
+     --s 1.5 
+     --model_path ema_0.9999_best.pt
+     --results_path RESULTS/{dir}""".format(dir=dir).split())
 
     dist_util.setup_dist()
     logger.configure()
@@ -47,13 +67,13 @@ def main():
         deterministic=True,
         random_crop=False,
         random_flip=False,
-        is_train=False
+        is_train=True
     )
 
     if args.use_fp16:
         model.convert_to_fp16()
     model.eval()
-    len_data_dir = len(os.listdir(args.data_dir + "/annotations"))
+    len_data_dir = len(os.listdir(args.data_dir + "/annotations/training"))
     image_path = os.path.join(args.results_path, 'images')
     os.makedirs(image_path, exist_ok=True)
     label_path = os.path.join(args.results_path, 'labels')
@@ -66,10 +86,9 @@ def main():
         image = ((batch + 1.0) / 2.0).cuda()
         label = (cond['label_ori'].float() / 255.0).cuda()
         model_kwargs = preprocess_input(cond, num_classes=args.num_classes)
-        logger.log(cond)
         # set hyperparameter
         model_kwargs['s'] = args.s
-        count = args.num_samples // len_data_dir if args.num_samples // len_data_dir >= 1 else 1
+        count = args.num_samples #  // len_data_dir if args.num_samples // len_data_dir >= 1 else 1
         for l in range(count):
             sample_fn = (
                 diffusion.p_sample_loop if not args.use_ddim else diffusion.ddim_sample_loop
@@ -90,17 +109,19 @@ def main():
             for j in range(sample.shape[0]):
                 tv.utils.save_image(image[j], os.path.join(image_path,
                                                            cond['path'][j].split('/')[-1].split('.')[0] + "_" + str(
-                                                               i) + '.png'))
+                                                               l) + '.png'))
                 tv.utils.save_image(sample[j], os.path.join(sample_path,
                                                             cond['path'][j].split('/')[-1].split('.')[0] + "_" + str(
-                                                                i) + '.png'))
+                                                                l) + '.png'))
                 tv.utils.save_image(label[j], os.path.join(label_path,
                                                            cond['path'][j].split('/')[-1].split('.')[0] + "_" + str(
                                                                i) + '.png'))
 
-            logger.log(f"created {len(all_samples) * args.batch_size} samples")
-
-        if len(all_samples) * args.batch_size > args.num_samples:
+            logger.log(f"created {len(all_samples) * args.batch_size} samples: {cond['path'][0].split('/')[-1].split('.')[0]}")
+        os.remove(os.path.join(args.data_dir, "annotations/training",cond['path'][0].split('/')[-1].split('.')[0] + '.png'))
+        os.remove(os.path.join(args.data_dir, "images/training",cond['path'][0].split('/')[-1].split('.')[0] + '.jpg'))
+        logger.log(args.num_samples*len_data_dir)
+        if len(all_samples) * args.batch_size > (args.num_samples*len_data_dir):
             break
 
     dist.barrier()
@@ -135,34 +156,18 @@ def get_edges(t):
 
 
 def create_argparser():
-    date_dir = date.today()
     defaults = dict(
-        no_instance=True,
-        num_classes=151,
-        data_dir="./data/nutik",
-        dataset_mode="nutik",
-        attention_resolutions="32,16,8",
-        diffusion_steps=1000,
-        image_size=256,
-        learn_sigma=True,
-        noise_schedule="linear",
-        num_channels=256,
-        num_head_channels=64,
-        num_res_blocks=2,
-        resblock_updown=True,
-        use_fp16=True,
-        user_scale_shift_norm=True,
-        class_cond=True,
-        s=1.5,
+        data_dir="",
+        dataset_mode="",
         clip_denoised=True,
-        num_samples=10,
+        num_samples=10000,
         batch_size=1,
         use_ddim=False,
-        model_path="ema_0.9999_best.pt",
-        results_path="RESULTS/{dir}".format(dir=date_dir).split(),
-        is_train=False
+        model_path="",
+        results_path="",
+        is_train=True,
+        s=1.0
     )
-
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()
     add_dict_to_argparser(parser, defaults)
