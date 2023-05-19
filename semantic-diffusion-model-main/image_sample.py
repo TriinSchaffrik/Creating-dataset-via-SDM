@@ -24,10 +24,10 @@ from guided_diffusion.script_util import (
 
 def main():
     dir = date.today()
-    args = create_argparser().parse_args("""--num_samples 3
+    args = create_argparser().parse_args("""--num_samples 2
      --no_instance True
      --num_classes 151 
-     --data_dir ./data/ade20k
+     --data_dir ./data/ade20k 
      --dataset_mode ade20k
      --attention_resolutions 32,16,8 
      --diffusion_steps 1000 
@@ -42,6 +42,7 @@ def main():
      --use_scale_shift_norm True 
      --class_cond True 
      --s 1.5 
+     --is_train True
      --model_path ema_0.9999_best.pt
      --results_path RESULTS/{dir}""".format(dir=dir).split())
 
@@ -67,7 +68,7 @@ def main():
         deterministic=True,
         random_crop=False,
         random_flip=False,
-        is_train=True
+        is_train=args.is_train
     )
 
     if args.use_fp16:
@@ -83,6 +84,9 @@ def main():
     logger.log("sampling...")
     all_samples = []
     for i, (batch, cond) in enumerate(data):
+        if i < 13010 or i % 25 != 0:
+            print(cond['path'])
+            continue
         image = ((batch + 1.0) / 2.0).cuda()
         label = (cond['label_ori'].float() / 255.0).cuda()
         model_kwargs = preprocess_input(cond, num_classes=args.num_classes)
@@ -115,13 +119,13 @@ def main():
                                                                 l) + '.png'))
                 tv.utils.save_image(label[j], os.path.join(label_path,
                                                            cond['path'][j].split('/')[-1].split('.')[0] + "_" + str(
-                                                               i) + '.png'))
+                                                               l) + '.png'))
 
             logger.log(f"created {len(all_samples) * args.batch_size} samples: {cond['path'][0].split('/')[-1].split('.')[0]}")
         os.remove(os.path.join(args.data_dir, "annotations/training",cond['path'][0].split('/')[-1].split('.')[0] + '.png'))
         os.remove(os.path.join(args.data_dir, "images/training",cond['path'][0].split('/')[-1].split('.')[0] + '.jpg'))
         logger.log(args.num_samples*len_data_dir)
-        if len(all_samples) * args.batch_size > (args.num_samples*len_data_dir):
+        if len(all_samples) * args.batch_size > (args.num_samples*len_data_dir/30):
             break
 
     dist.barrier()
